@@ -33,7 +33,7 @@ class RoadDamageClassifier:
         self.class_names = json.loads(self.labels_path.read_text(encoding="utf-8"))
 
     def predict_array(self, image_bgr: np.ndarray) -> PredictionResult:
-        image = preprocess_for_model(image_bgr, self.image_size)
+        image = preprocess_for_model(image_bgr, self.image_size, use_enhancement=False)
         batch = np.expand_dims(image, axis=0)
         probabilities_array = self.model.predict(batch, verbose=0)[0]
         class_index = int(np.argmax(probabilities_array))

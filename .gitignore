@@ -1,15 +1,60 @@
+# Python cache files
 __pycache__/
-*.pyc
-.env
+*.py[cod]
+*$py.class
+# Virtual environments and local package folders
 .venv/
 venv/
-data/raw/
-data/uploads/
-ml/checkpoints/
-ml/models/*.keras
-ml/models/*.h5
-ml/reports/*.png
-ml/reports/*.csv
-ml/reports/*.json
+env/
+ENV/
+# Local environment variables and secrets
+.env
+.env.*
+!.env.example
+# Jupyter
 .ipynb_checkpoints/
-
+# IDE/editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+# Dataset folders
+data/raw/*
+data/processed/*
+data/uploads/*
+data/samples/*
+!data/raw/.gitkeep
+!data/processed/.gitkeep
+!data/samples/.gitkeep
+# Trained model artifacts
+ml/models/*
+!ml/models/.gitkeep
+# Training checkpoints
+ml/checkpoints/*
+!ml/checkpoints/.gitkeep
+# Generated ML reports
+ml/reports/*.csv
+ml/reports/*.png
+ml/reports/*.jpg
+ml/reports/*.jpeg
+ml/reports/*.json
+!ml/reports/.gitkeep
+# Test and tooling caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+# Docker/local database artifacts
+*.db
+*.sqlite
+*.sqlite3
+postgres-data/
+pgdata/
+# Local scratch/output folders from Codex workspace
+work/
+outputs/

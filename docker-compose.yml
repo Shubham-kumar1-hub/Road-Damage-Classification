@@ -1,0 +1,30 @@
+services:
+  api:
+    build: .
+    container_name: road-damage-api
+    env_file:
+      - .env.example
+    ports:
+      - "8000:8000"
+    depends_on:
+      - db
+    volumes:
+      - ./ml/models:/app/ml/models
+      - ./data/uploads:/app/data/uploads
+
+  db:
+    image: postgis/postgis:16-3.4
+    container_name: road-damage-db
+    environment:
+      POSTGRES_DB: road_damage
+      POSTGRES_USER: road_user
+      POSTGRES_PASSWORD: road_password
+    ports:
+      - "5432:5432"
+    volumes:
+      - road_damage_pgdata:/var/lib/postgresql/data
+      - ./sql/schema.sql:/docker-entrypoint-initdb.d/01_schema.sql
+
+volumes:
+  road_damage_pgdata:
+

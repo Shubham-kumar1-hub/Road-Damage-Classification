@@ -1,3 +1,5 @@
+# Stores all project settings in one place.
+
 from __future__ import annotations
 
 from functools import lru_cache

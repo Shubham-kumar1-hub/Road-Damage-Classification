@@ -1,221 +1,223 @@
 # Road Damage Detection for Smart Cities
 
-An end-to-end road damage classification project built using Deep Learning, FastAPI, PostgreSQL, and PostGIS.
-
-The system can classify road damage from uploaded images, store reports with GPS coordinates, and search for nearby damage reports using geospatial queries.
+An end-to-end road damage classification system built with Deep Learning, FastAPI, PostgreSQL, and PostGIS. The system classifies road damage from uploaded images, stores geo-tagged reports with GPS coordinates, and supports radius-based damage search using geospatial queries.
 
 ---
 
-## Project Overview
+## Project Highlights
 
-This project was developed to understand the complete machine learning workflow:
-
-1. Data Preparation
-2. Model Training
-3. Model Evaluation
-4. Model Deployment
-5. Database Integration
-6. Geospatial Search
-
-The project uses a ResNet50 transfer learning model to classify road damage into different categories and serves predictions through a FastAPI backend.
-
----
-
-## Features
-
-- Road damage classification using ResNet50
-- FastAPI-based REST API
-- PostgreSQL database integration
-- PostGIS support for geospatial queries
-- Image upload and storage
-- Nearby damage search using GPS coordinates
-- Docker support
+- **CNN vs ResNet50 comparison** — custom baseline vs. transfer learning with quantified improvement
+- **Class imbalance handling** — addressed via `sklearn` balanced class weights applied during training
+- **Two-stage fine-tuning** — frozen head training followed by selective unfreezing of top ResNet50 layers
+- **Production-ready deployment** — FastAPI + PostgreSQL + PostGIS + Docker
+- **Geospatial search** — radius-based nearby damage lookup via PostGIS geography queries
 
 ---
 
 ## Tech Stack
 
-### Machine Learning
+| Layer | Tools |
+|---|---|
+| Machine Learning | TensorFlow / Keras, ResNet50, OpenCV, Scikit-Learn |
+| Backend | FastAPI, Uvicorn |
+| Database | PostgreSQL, PostGIS, SQLAlchemy |
+| Deployment | Docker, Docker Compose |
 
-- Python
-- TensorFlow / Keras
-- OpenCV
-- NumPy
-- Scikit-Learn
+---
 
-### Backend
+## Dataset
 
-- FastAPI
-- Uvicorn
+**Source:** [Road Damage Dataset — Potholes, Cracks and Manholes (Kaggle)](https://www.kaggle.com/datasets/lorenzoarcioni/road-damage-dataset-potholes-cracks-and-manholes)
 
-### Database
+The dataset contains real-world road damage images across three classes. It has a significant class imbalance — crack images dominate the training set, while manhole and pothole samples are substantially underrepresented.
 
-- PostgreSQL
-- PostGIS
-- SQLAlchemy
+| Class | Train | Val | Test |
+|---|---|---|---|
+| Crack | ~1,570 | ~340 | ~350 |
+| Pothole | ~440 | ~80 | ~95 |
+| Manhole | ~305 | ~65 | ~65 |
 
-### Deployment
+This imbalance directly affects model performance on minority classes and was explicitly handled during training (see Class Imbalance section below).
 
-- Docker
-- Docker Compose
+---
+
+## Model Development
+
+### Approach
+
+Two models were trained and compared:
+
+1. **Custom CNN** — a baseline model built from scratch
+2. **ResNet50 Transfer Learning** — pretrained ImageNet weights with a custom classification head and selective fine-tuning
+
+### Class Imbalance Handling
+
+The crack class has ~3–5x more samples than manhole and pothole. To prevent the model from being biased toward the majority class, balanced class weights were computed using `sklearn` and passed to the training loop:
+
+```python
+from sklearn.utils.class_weight import compute_class_weight
+
+weights = compute_class_weight(
+    class_weight="balanced",
+    classes=np.array(class_names),
+    y=train_labels,
+)
+class_weights = {index: float(weight) for index, weight in enumerate(weights)}
+```
+
+These weights were applied via `model.fit(..., class_weight=class_weights)`, penalising misclassification of minority classes more heavily.
+
+### ResNet50 Training Strategy
+
+Training was done in two stages:
+
+**Stage 1 — Frozen Base (Head Training)**
+- ResNet50 base frozen; only the custom classification head trained
+- Head: `GlobalAveragePooling2D → BatchNormalization → Dense(256, relu, L2) → Dropout(0.40) → Softmax`
+- Optimizer: Adam (lr=1e-3), Label Smoothing (0.05)
+- Callbacks: EarlyStopping, ReduceLROnPlateau, ModelCheckpoint
+- Training time: ~29.6 minutes
+
+**Stage 2 — Fine-Tuning**
+- Top 40 ResNet50 layers unfrozen; lower layers kept frozen to preserve general features
+- Optimizer: Adam (lr=1e-5) — much lower rate to avoid destroying pretrained weights
+- Training time: ~19.3 minutes
+
+### Data Augmentation
+
+```python
+tf.keras.layers.RandomFlip("horizontal")
+tf.keras.layers.RandomRotation(0.04)
+tf.keras.layers.RandomZoom(0.08)
+tf.keras.layers.RandomContrast(0.15)
+```
+
+---
+
+## Model Comparison
+
+| Metric | Custom CNN | ResNet50 |
+|---|---|---|
+| Accuracy | 51.57% | **84.90%** |
+| Precision (Macro) | 42.49% | **76.74%** |
+| Recall (Macro) | 45.03% | **80.59%** |
+| F1 Score (Macro) | 40.63% | **78.34%** |
+| F1 Score (Weighted) | 54.65% | **85.16%** |
+| ROC-AUC (OvR Macro) | 0.6563 | **0.9466** |
+
+ResNet50 outperforms the custom CNN across every metric. The ROC-AUC jump from 0.66 to 0.95 reflects significantly better class separation, not just accuracy gain. The custom CNN's 51.57% accuracy is only marginally above random chance for a 3-class problem, confirming that a shallow architecture is insufficient for this task without pretrained features.
+
+---
+
+## Severity Estimation
+
+Severity is derived from the predicted damage type and model confidence using rule-based thresholds:
+
+```python
+def estimate_severity(damage_type: str, confidence: float) -> str:
+    if damage_type == "no_damage":
+        return "none"
+    if damage_type == "pothole" and confidence >= 0.70:
+        return "high"
+    if confidence >= 0.85:
+        return "high"
+    if confidence >= 0.60:
+        return "medium"
+    return "low"
+```
+
+Potholes are treated as structurally higher-risk than cracks at equivalent confidence levels, reflecting real-world road safety priorities.
 
 ---
 
 ## Project Structure
 
-```text
+```
 road-damage-detection/
-
+│
 ├── app/
 │   ├── api/
+│   │   ├── health.py
+│   │   ├── predict.py
+│   │   └── reports.py
 │   ├── core/
+│   │   └── config.py
 │   ├── db/
+│   │   └── session.py
+│   ├── models/
+│   │   └── report.py
 │   ├── schemas/
+│   │   └── report.py
 │   ├── services/
+│   │   ├── model_service.py
+│   │   └── report_service.py
 │   └── main.py
 │
 ├── data/
-│   ├── raw/
 │   ├── processed/
+│   │   ├── train/  (crack / manhole / pothole)
+│   │   ├── val/    (crack / manhole / pothole)
+│   │   └── test/   (crack / manhole / pothole)
+│   ├── raw/
+│   ├── samples/
 │   └── uploads/
 │
 ├── ml/
 │   ├── models/
+│   │   ├── road_damage_resnet50.keras
+│   │   ├── road_damage_resnet50_labels.json
+│   │   ├── road_damage_self_contained_cnn.keras
+│   │   └── road_damage_self_contained_cnn_labels.json
 │   ├── reports/
+│   │   ├── road_damage_resnet50_metrics.json
+│   │   ├── road_damage_resnet50_history.csv
+│   │   ├── road_damage_self_contained_cnn_metrics.json
+│   │   └── road_damage_self_contained_cnn_history.csv
+│   ├── config.py
 │   ├── dataset.py
-│   ├── preprocessing.py
+│   ├── evaluate.py
+│   ├── models.py
 │   ├── predict.py
-│   └── prepare_rdd_classification.py
+│   ├── preprocessing.py
+│   ├── severity.py
+│   └── train.py
 │
 ├── notebooks/
-│   ├── 03_test_saved_model.ipynb/
-│   ├── 04_self_contained_professional_cnn.ipynb/
-│   ├── 05_self_contained_resnet50_transfer_learning.ipynb
+│   ├── 03_test_saved_model.ipynb
+│   ├── 04_self_contained_cnn.ipynb
+│   └── 05_self_contained_resnet50_transfer_learning.ipynb
 │
 ├── sql/
+│   ├── schema.sql
 │   └── geospatial_queries.sql
-│   └── schema.sql
 │
-├── requirements.txt
-├── Dockerfile
+├── tests/
+│   └── test_severity.py
+│
+├── .env.example
+├── .gitignore
 ├── docker-compose.yml
+├── Dockerfile
+├── requirements.txt
 └── README.md
 ```
 
 ---
 
-## Dataset Structure
-
-The dataset should be organized as follows:
-
-```text
-data/processed/
-
-├── train/
-│   ├── crack/
-│   ├── pothole/
-│   └── manhole/
-│
-├── val/
-│   ├── crack/
-│   ├── pothole/
-│   └── manhole/
-│
-└── test/
-    ├── crack/
-    ├── pothole/
-    └── manhole/
-```
-
-Each folder name automatically becomes the class label during training.
-
----
-
-## Model Training
-
-The project uses transfer learning with ResNet50.
-
-### Training Steps
-
-1. Load dataset
-2. Apply data augmentation
-3. Load pretrained ResNet50 weights
-4. Train classifier head
-5. Fine-tune ResNet50 layers
-6. Save trained model
-
-### Output Files
-
-```text
-ml/models/
-
-road_damage_resnet50.keras
-road_damage_resnet50_labels.json
-```
-
----
-
-## Model Evaluation
-
-The model is evaluated using:
-
-- Accuracy
-- Precision
-- Recall
-- F1 Score
-- Confusion Matrix
-- ROC-AUC Score
-
-Example metrics:
-
-```text
-Accuracy : 85%
-
-Class-wise Performance
-
-Crack
-Precision : 0.94
-Recall    : 0.90
-
-Manhole
-Precision : 0.67
-Recall    : 0.84
-
-Pothole
-Precision : 0.69
-Recall    : 0.68
-```
-
----
-
-## FastAPI Endpoints
+## API Endpoints
 
 ### Health Check
-
 ```http
 GET /health
 ```
 
-Returns:
-
-```json
-{
-  "status": "ok"
-}
-```
-
----
-
 ### Predict Damage
-
 ```http
 POST /predict
 ```
+Upload an image and receive a damage prediction.
 
-Upload an image and get a prediction.
-
-Response:
-
+**Response:**
 ```json
 {
   "damage_type": "pothole",
@@ -224,202 +226,87 @@ Response:
 }
 ```
 
----
-
 ### Create Report
-
 ```http
 POST /reports
 ```
+Accepts image + GPS coordinates. Runs prediction, stores result in PostgreSQL with PostGIS geography point.
 
-Required fields:
-
-- image
-- latitude
-- longitude
-
-This endpoint:
-
-1. Predicts road damage
-2. Stores report in PostgreSQL
-3. Saves image path
-4. Stores GPS location in PostGIS
-
----
-
-### Get Reports
-
+### Get All Reports
 ```http
 GET /reports
 ```
 
-Returns stored damage reports.
-
-Example:
-
-```json
-[
-  {
-    "id": 1,
-    "damage_type": "pothole",
-    "severity": "high",
-    "confidence": 0.91
-  }
-]
-```
-
----
-
 ### Search Nearby Reports
-
-```http
-GET /reports/nearby
-```
-
-Parameters:
-
-```text
-lat
-lon
-radius_km
-```
-
-Example:
-
 ```http
 GET /reports/nearby?lat=25.5941&lon=85.1376&radius_km=5
 ```
-
-Returns all reports within a 5 km radius.
+Returns all damage reports within a specified radius using PostGIS `ST_DWithin`.
 
 ---
 
 ## Database Schema
 
-The project stores road damage reports in PostgreSQL.
+Reports are stored in PostgreSQL with a PostGIS `geography` column for spatial queries.
 
-Main fields:
-
-```text
-id
-damage_type
-severity
-confidence
-latitude
-longitude
-location
-image_path
-created_at
-```
-
-The `location` field is stored as a PostGIS geography point and is used for nearby searches.
-
----
-
-## How Nearby Search Works
-
-Each report is stored with GPS coordinates.
-
-Example:
-
-```text
-Latitude  = 25.5941
-Longitude = 85.1376
-```
-
-When a user requests:
-
-```http
-GET /reports/nearby
-```
-
-PostGIS calculates the distance between the provided coordinates and all stored reports.
-
-Only reports inside the requested radius are returned.
+| Field | Type | Description |
+|---|---|---|
+| id | Integer | Primary key |
+| damage_type | String | crack / pothole / manhole |
+| severity | String | low / medium / high |
+| confidence | Float | Model prediction confidence |
+| latitude | Float | GPS latitude |
+| longitude | Float | GPS longitude |
+| location | Geography(Point) | PostGIS point for spatial queries |
+| image_path | String | Stored image path |
+| created_at | DateTime | Report timestamp |
 
 ---
 
 ## Running the Project
 
-### Create Virtual Environment
+### 1. Clone and set up environment
 
 ```bash
+git clone <repo-url>
+cd road-damage-detection
 python -m venv venv
-```
-
-Activate:
-
-```bash
-venv\Scripts\activate
-```
-
----
-
-### Install Dependencies
-
-```bash
+venv\Scripts\activate        # Windows
 pip install -r requirements.txt
 ```
 
----
+### 2. Configure environment
 
-### Configure Database
+```bash
+cp .env.example .env
+# Edit .env with your PostgreSQL credentials
+```
 
-Create PostgreSQL database:
+### 3. Set up database
 
 ```sql
 CREATE DATABASE road_damage;
-```
-
-Run schema:
-
-```sql
 \i sql/schema.sql
 ```
 
----
+### 4. Run with Docker (recommended)
 
-### Start FastAPI
+```bash
+docker-compose up --build
+```
+
+### 5. Run locally
 
 ```bash
 uvicorn app.main:app --reload
 ```
 
-Open:
-
-```text
-http://127.0.0.1:8000/docs
-```
-
----
-
-## Future Improvements
-
-- Road damage object detection
-- Mobile application integration
-- Automatic GPS extraction
-- Severity estimation model
-- Interactive dashboard
-- Real-time road monitoring
-
----
-
-## Learning Outcomes
-
-Through this project, I learned:
-
-- Transfer Learning with ResNet50
-- Image Classification
-- FastAPI Development
-- PostgreSQL Integration
-- PostGIS Geospatial Queries
-- SQLAlchemy ORM
-- Model Deployment
-- REST API Design
-- Docker Basics
+API docs available at: `http://127.0.0.1:8000/docs`
 
 ---
 
 ## Author
 
-Shubham Kumar Jha
+**Shubham Kumar Jha**  
+Final Year B.Tech — Computer Engineering  
+[GitHub](https://github.com/) · [LinkedIn](https://linkedin.com/)

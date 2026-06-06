@@ -1,4 +1,4 @@
-# Road Damage Detection for Smart Cities
+# Road Damage Classification for Smart Cities
 
 An end-to-end road damage classification system built with Deep Learning, FastAPI, PostgreSQL, and PostGIS. The system classifies road damage from uploaded images, stores geo-tagged reports with GPS coordinates, and supports radius-based damage search using geospatial queries.
 
